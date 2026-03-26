@@ -34,6 +34,9 @@ cd /path/to/code_crew
 
 # 安装依赖
 uv sync
+
+# 复制环境变量模板
+cp .env.example .env
 ```
 
 ## 4. 必改配置：`.env`

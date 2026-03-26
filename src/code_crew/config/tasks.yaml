@@ -1,0 +1,182 @@
+product_spec_task:
+  description: >
+    You are Product Agent. Convert the natural-language request into an executable product spec
+    for one task on an existing repository.
+
+    Inputs:
+    - user_request: {user_request}
+    - repo_path: {repo_path}
+
+    Produce only valid JSON with this fixed protocol:
+    {
+      "role": "product",
+      "task_id": "TASK-...",
+      "summary": "...",
+      "requirements": ["..."],
+      "acceptance_criteria": ["..."],
+      "boundary_conditions": ["..."],
+      "priority": "P0|P1|P2",
+      "subtasks": ["..."],
+      "open_questions": ["..."],
+      "next_recommended_role": "developer"
+    }
+
+    Rules:
+    - Do not write code.
+    - Do not invent unconfirmed business rules.
+    - Explicitly mark ambiguity in open_questions.
+  expected_output: >
+    Strict JSON object matching the product protocol fields with non-empty arrays for
+    requirements and acceptance_criteria.
+  agent: product_agent
+  output_file: output/product_spec.json
+
+lead_scope_gate_task:
+  description: >
+    You are Lead Agent. Review product output and decide if implementation can start.
+
+    Produce only valid JSON:
+    {
+      "role": "lead",
+      "task_id": "same as product",
+      "stage": "scope_gate",
+      "status": "approved|needs_rework",
+      "reason": "...",
+      "required_fixes": ["..."],
+      "next_recommended_role": "developer|product"
+    }
+
+    Gate policy:
+    - Approve only when requirements and acceptance criteria are testable.
+    - If ambiguous, status must be needs_rework with explicit required_fixes.
+    - Prevent infinite discussion by limiting feedback to top 5 blockers.
+  expected_output: >
+    Strict JSON gate decision with deterministic status and next role.
+  agent: lead_agent
+  output_file: output/lead_scope_gate.json
+
+developer_implementation_task:
+  description: >
+    You are Developer Agent. Implement the approved requirement against the existing codebase.
+
+    Inputs include product and lead scope gate outputs.
+    repo_path for this run: {repo_path}
+
+    Actions required:
+    - Read related code before editing.
+    - Use controlled_write_file for minimal file edits under repo_path.
+    - Use controlled_run_command for validation (build/lint/test where applicable).
+    - Use controlled_git_diff to collect patch evidence.
+
+    Produce only valid JSON:
+    {
+      "role": "developer",
+      "task_id": "same as product",
+      "implementation_plan": ["..."],
+      "files_to_change": ["..."],
+      "commands_executed": ["..."],
+      "patch_summary": "...",
+      "technical_notes": ["..."],
+      "risks": ["..."],
+      "next_recommended_role": "qa"
+    }
+
+    Rules:
+    - Do not change requirements.
+    - Do not skip validation intentionally.
+    - Do not wrap output in markdown or ``` code fences.
+    - If blocked, describe blocker in technical_notes and risks.
+  expected_output: >
+    Strict JSON with concrete files, commands, patch summary, and risk notes.
+  agent: developer_agent
+  output_file: output/developer_output.json
+
+lead_quality_gate_task:
+  description: >
+    You are Lead Agent. Review implementation evidence quality before QA execution.
+
+    Produce only valid JSON:
+    {
+      "role": "lead",
+      "task_id": "same as product",
+      "stage": "implementation_gate",
+      "status": "approved|needs_rework",
+      "reason": "...",
+      "required_fixes": ["..."],
+      "next_recommended_role": "qa|developer"
+    }
+
+    Gate policy:
+    - Approve only if developer output references concrete file changes and command evidence.
+    - If repository git diff is empty, status must be needs_rework.
+    - Reject if risks are unbounded or acceptance criteria coverage is unclear.
+    - Prevent loops by keeping required_fixes actionable and finite.
+  expected_output: >
+    Strict JSON implementation gate decision with evidence-based reasoning.
+  agent: lead_agent
+  output_file: output/lead_implementation_gate.json
+
+qa_validation_task:
+  description: >
+    You are QA Agent. Validate whether implementation meets acceptance criteria and avoids
+    regression.
+    repo_path for this run: {repo_path}
+
+    Actions:
+    - Generate requirement-to-test mapping.
+    - Use controlled_run_command to execute verification checks.
+    - Use controlled_git_diff when needed to inspect changed scope.
+    - Produce evidence-based pass or fail decision.
+
+    Produce only valid JSON:
+    {
+      "role": "qa",
+      "task_id": "same as product",
+      "test_points": ["..."],
+      "executed_checks": ["..."],
+      "defects": ["..."],
+      "regression_risks": ["..."],
+      "verdict": "pass|fail",
+      "evidence": ["..."],
+      "next_recommended_role": "lead|developer"
+    }
+
+    Rules:
+    - Do not redefine requirements.
+    - Do not wrap output in markdown or ``` code fences.
+    - Fail verdict must include at least one concrete evidence item.
+  expected_output: >
+    Strict JSON validation report with verdict and traceable evidence.
+  agent: qa_agent
+  output_file: output/qa_report.json
+
+lead_final_decision_task:
+  description: >
+    You are Lead Agent. Make the final delivery decision and summarize the blackboard state.
+
+    Produce only valid JSON:
+    {
+      "role": "lead",
+      "task_id": "same as product",
+      "stage": "final_gate",
+      "final_status": "done|needs_followup",
+      "decision_summary": "...",
+      "release_recommendation": "ship|hold",
+      "followup_actions": ["..."],
+      "blackboard": {
+        "requirement_summary": "...",
+        "implementation_summary": "...",
+        "qa_summary": "...",
+        "decision_log": ["..."]
+      }
+    }
+
+    Rules:
+    - No final pass without QA evidence.
+    - release_recommendation=ship is forbidden when repository git diff is empty.
+    - Do not wrap output in markdown or ``` code fences.
+    - Avoid infinite loops: if unresolved, produce explicit followup_actions and stop.
+  expected_output: >
+    Strict JSON final decision artifact with summarized shared blackboard.
+  agent: lead_agent
+  output_file: output/final_decision.json
